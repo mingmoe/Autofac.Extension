@@ -22,13 +22,13 @@ internal class Program
 
         public void Print()
         {
-            Logger.LogInformation($"A: {Name}, Value: {Value}, Configure Name: {Options.Value.Name}");
+            Logger.LogInformation($"Name: {Name}, Value: {Value}\nConfigure: {Options.Value.Opt}");
         }
     }
 
     class C
     {
-        public string Name { get; set; } = "Problem with ConfigurationHelper!";
+        public string Opt { get; set; } = "Problem with ConfigurationHelper!";
     }
 
     static void Main(string[] args)
@@ -40,13 +40,19 @@ internal class Program
             f.AddConsole();
         });
         containerBuilder.AddOptions();
-        containerBuilder.Configure<C>((c) =>
+        containerBuilder.Configure<C>((con, c) =>
         {
-            c.Name = "ConfigurationHelper's first configuration!";
+            c.Opt =
+            $"ConfigurationHelper's first configuration! " +
+            $"With Name: {con.Resolve<string>()} " +
+            $"With Value: {con.Resolve<object>()}";
         });
-        containerBuilder.Configure<C>((c) =>
+        containerBuilder.Configure<C>((con, c) =>
         {
-            c.Name = "ConfigurationHelper's second configuration!";
+            c.Opt =
+            $"ConfigurationHelper's second configuration! " +
+            $"With Name: {con.Resolve<string>()} " +
+            $"With Value: {con.Resolve<object>()}";
         });
 
         containerBuilder.Register(ctx => "Hello");
