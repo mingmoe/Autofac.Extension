@@ -12,10 +12,20 @@ using static Autofac.Extension.ConfigurationHelper;
 namespace Autofac.Extension;
 public static class ConfigurationHelper
 {
-    internal class OptionsWrapper<T> : IOptions<T>
+    private class OptionsWrapper<T> : IOptions<T>
         where T : class, new()
     {
-        public required T Value { get; init; }
+        public T Value { get; init; }
+
+        public OptionsWrapper(Configured<T> newOptions)
+        {
+            Value = newOptions.Value;
+        }
+    }
+
+    private class Configured<T>(T value)
+    {
+        public T Value { get; init; } = value;
     }
 
     internal class Configuration<T>
@@ -34,16 +44,28 @@ public static class ConfigurationHelper
         builder.RegisterInstance<Configuration<T>>(new Configuration<T>()
         {
             ConfigureAction = configure
-        }).AsSelf().SingleInstance();
+        })
+            .AsSelf()
+            .SingleInstance();
 
-        builder.Register<T>((context) =>
+        builder.Register<T>(context =>
         {
-            T options = new();
+            return new();
+        })
+            .AsSelf()
+            .SingleInstance()
+            .PreserveExistingDefaults();
+
+        builder.Register<Configured<T>>((context) =>
+        {
+            T options = context.Resolve<T>();
             context.Resolve<IEnumerable<Configuration<T>>>()
                 .ToList()
                 .ForEach(c => c.ConfigureAction(context, options));
-            return options;
+            return new Configured<T>(options);
         })
-            .AsSelf().SingleInstance();
+            .AsSelf()
+            .SingleInstance()
+            .PreserveExistingDefaults();
     }
 }

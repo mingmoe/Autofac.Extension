@@ -28,6 +28,7 @@ internal class Program
 
     class C
     {
+        public string Hit { get; set; } = "HIT";
         public string Opt { get; set; } = "Problem with ConfigurationHelper!";
     }
 
@@ -40,20 +41,34 @@ internal class Program
             f.AddConsole();
         });
         containerBuilder.AddOptions();
+        containerBuilder
+            .RegisterInstance<C>(new() { Hit = "SHOULD KEEP" })
+            .AsSelf()
+            .SingleInstance();
         containerBuilder.Configure<C>((con, c) =>
         {
             c.Opt =
             $"ConfigurationHelper's first configuration! " +
             $"With Name: {con.Resolve<string>()} " +
-            $"With Value: {con.Resolve<object>()}";
+            $"With Value: {con.Resolve<object>()} " +
+            $"With Hit:{c.Hit}";
         });
+        containerBuilder
+            .RegisterInstance<C>(new() { Hit = "SHOULD OVERRIDE" })
+            .AsSelf()
+            .SingleInstance();
         containerBuilder.Configure<C>((con, c) =>
         {
             c.Opt =
             $"ConfigurationHelper's second configuration! " +
             $"With Name: {con.Resolve<string>()} " +
-            $"With Value: {con.Resolve<object>()}";
+            $"With Value: {con.Resolve<object>()} " +
+            $"With Hit:{c.Hit}";
         });
+        containerBuilder
+            .RegisterInstance<C>(new() { Hit = "SHOULD OVERRIDE AGAIN" })
+            .AsSelf()
+            .SingleInstance();
 
         containerBuilder.Register(ctx => "Hello");
         containerBuilder.RegisterInstance<object>(1);
