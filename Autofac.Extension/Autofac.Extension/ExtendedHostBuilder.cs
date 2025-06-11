@@ -36,18 +36,28 @@ public sealed class ExtendedHostBuilder : IHostBuilder
     private List<Action<IConfigurationBuilder>> ConfigureHostConfigurationDelegates { get; } = new();
     private List<Action<HostBuilderContext, IConfigurationBuilder>> ConfigureAppConfigurationDelegates { get; } = new();
     private List<Action<HostBuilderContext, ContainerBuilder>> ConfigureContainerDelegates { get; } = new();
+    private List<Action<HostBuilderContext, IContainer>> ConfigureIContainerDelegate { get; } = new();
 
     public ContainerBuilder Builder { get; } = new();
 
     public IHostBuilder ConfigureHostConfiguration(Action<IConfigurationBuilder> configureDelegate)
     {
+        ArgumentNullException.ThrowIfNull(configureDelegate);
         ConfigureHostConfigurationDelegates.Add(configureDelegate);
+        return this;
+    }
+
+    public IHostBuilder ConfigureIContainer(Action<HostBuilderContext, IContainer> configureDelegate)
+    {
+        ArgumentNullException.ThrowIfNull(configureDelegate);
+        ConfigureIContainerDelegate.Add(configureDelegate);
         return this;
     }
 
     public IHostBuilder ConfigureAppConfiguration(
         Action<HostBuilderContext, IConfigurationBuilder> configureDelegate)
     {
+        ArgumentNullException.ThrowIfNull(configureDelegate);
         ConfigureAppConfigurationDelegates.Add(configureDelegate);
         return this;
     }
@@ -100,6 +110,18 @@ public sealed class ExtendedHostBuilder : IHostBuilder
         return this;
     }
 
+    public IHostBuilder ConfigureContainer(Action<HostBuilderContext, ContainerBuilder> action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ConfigureContainerDelegates.Add(action);
+        return this;
+    }
+
+    /// <summary>
+    /// The registed compoments in IServiceCollection will be overridden by the components registered in ContainerBuilder.
+    /// </summary>
+    /// <returns>ExtendedHost</returns>
+    /// <exception cref="InvalidOperationException"></exception>
     public IHost Build()
     {
         // ****************
@@ -116,6 +138,7 @@ public sealed class ExtendedHostBuilder : IHostBuilder
         // build system configuration first
         {
             ConfigurationBuilder builder = new();
+            builder.AddInMemoryCollection();
             foreach (var action in ConfigureHostConfigurationDelegates)
             {
                 action(builder);
@@ -125,6 +148,7 @@ public sealed class ExtendedHostBuilder : IHostBuilder
         // build application configuration then
         {
             ConfigurationBuilder builder = new();
+            builder.AddConfiguration(Context.Configuration, true);
             foreach (var action in ConfigureAppConfigurationDelegates)
             {
                 action(Context, builder);
@@ -133,7 +157,6 @@ public sealed class ExtendedHostBuilder : IHostBuilder
         }
         // build services lastly
         {
-            ContainerBuilder containerBuilder = new();
             ServiceCollection serviceCollection = new();
 
             foreach (var action in ConfigureServicesDelegates)
@@ -141,6 +164,7 @@ public sealed class ExtendedHostBuilder : IHostBuilder
                 action(Context, serviceCollection);
             }
 
+            ContainerBuilder containerBuilder = new();
             containerBuilder.Populate(serviceCollection);
 
             foreach (var action in ConfigureContainerDelegates)
@@ -152,8 +176,15 @@ public sealed class ExtendedHostBuilder : IHostBuilder
             containerBuilder.RegisterInstance(Environment).As<IHostEnvironment>().SingleInstance();
             containerBuilder.RegisterInstance(Context).As<HostBuilderContext>().SingleInstance();
             containerBuilder.RegisterInstance(Context.Configuration).As<IConfiguration>().SingleInstance();
+            // IHostApplicationLifetime was registered by RegisterHost<T>() method
 
             container = containerBuilder.Build();
+        }
+        {
+            foreach (var action in ConfigureIContainerDelegate)
+            {
+                action(Context, container);
+            }
         }
         return container.Resolve<ExtendedHost>();
     }

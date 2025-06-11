@@ -3,13 +3,14 @@ using Autofac.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using static System.Net.Mime.MediaTypeNames;
 
 namespace Utopia.Core;
 
 /// <summary>
 /// Designed for Autofac and other high-level features.
 /// </summary>
-public abstract class ExtendedHost(IContainer container) : IHost, IHostApplicationLifetime
+public abstract class ExtendedHost(ILifetimeScope container) : IHost, IHostApplicationLifetime
 {
     private readonly CancellationTokenSource _startedCtx = new();
     private readonly CancellationTokenSource _stoppingCts = new();
@@ -23,87 +24,92 @@ public abstract class ExtendedHost(IContainer container) : IHost, IHostApplicati
 
     public required ILogger<ExtendedHost> Logger { protected get; init; }
 
-    public IContainer Container => container;
+    public ILifetimeScope Container => container;
 
     public IServiceProvider Services { get; } = new AutofacServiceProvider(container);
 
+    private async Task CallLifetimeService<T>(Func<T, Task> func, string lifeTime) where T : class
+    {
+        Logger.LogTrace("trigger {interface}.{lifetime}",
+            typeof(T).FullName,
+            lifeTime);
+        var services = container.Resolve<IEnumerable<T>>();
+        foreach (var service in services)
+        {
+            await func.Invoke(service).ConfigureAwait(false);
+        }
+    }
+
     protected async Task StartServer<T>(IHttpApplication<T> application, CancellationToken abortStart) where T : notnull
     {
-        var servers = container.Resolve<IEnumerable<IServer>>();
-        foreach (var server in servers)
+        await CallLifetimeService<IServer>(async (server) =>
         {
             await server.StartAsync(application, abortStart).ConfigureAwait(false);
-        }
+        },
+        nameof(IServer.StartAsync));
     }
 
     protected async Task StopServer(CancellationToken stopGracefullyShutdown)
     {
-        var servers = container.Resolve<IEnumerable<IServer>>();
-        foreach (var server in servers)
+        await CallLifetimeService<IServer>(async (server) =>
         {
             await server.StopAsync(stopGracefullyShutdown).ConfigureAwait(false);
-        }
+        },
+        nameof(IServer.StopAsync));
     }
 
     private async Task BeforeStartServices(CancellationToken abortStart)
     {
-        Logger.LogTrace("trigger {interface}.{lifetime}", nameof(IHostedLifecycleService), nameof(IHostedLifecycleService.StartingAsync));
-        var services = container.Resolve<IEnumerable<IHostedLifecycleService>>();
-        foreach (var service in services)
+        await CallLifetimeService<IHostedLifecycleService>(async (services) =>
         {
-            await service.StartingAsync(abortStart).ConfigureAwait(false);
-        }
+            await services.StartingAsync(abortStart).ConfigureAwait(false);
+        },
+        nameof(IHostedLifecycleService.StartingAsync));
     }
 
     private async Task StartServices(CancellationToken abortStart)
     {
-        Logger.LogTrace("trigger {interface}.{lifetime}", nameof(IHostedService), nameof(IHostedService.StartAsync));
-        var services = container.Resolve<IEnumerable<IHostedService>>();
-        foreach (var service in services)
+        await CallLifetimeService<IHostedService>(async (services) =>
         {
-            await service.StartAsync(abortStart).ConfigureAwait(false);
-        }
+            await services.StartAsync(abortStart).ConfigureAwait(false);
+        },
+        nameof(IHostedService.StartAsync));
     }
 
     private async Task AfterStartServices(CancellationToken abortStart)
     {
-        Logger.LogTrace("trigger {interface}.{lifetime}", nameof(IHostedLifecycleService), nameof(IHostedLifecycleService.StartedAsync));
-        var services = container.Resolve<IEnumerable<IHostedLifecycleService>>();
-        foreach (var service in services)
+        await CallLifetimeService<IHostedLifecycleService>(async (services) =>
         {
-            await service.StartedAsync(abortStart).ConfigureAwait(false);
-        }
+            await services.StartedAsync(abortStart).ConfigureAwait(false);
+        },
+        nameof(IHostedLifecycleService.StartedAsync));
     }
 
     private async Task BeforeStopServices(CancellationToken stopGracefullyShutdown)
     {
-        Logger.LogTrace("trigger {interface}.{lifetime}", nameof(IHostedLifecycleService), nameof(IHostedLifecycleService.StoppingAsync));
-        var services = container.Resolve<IEnumerable<IHostedLifecycleService>>();
-        foreach (var service in services)
+        await CallLifetimeService<IHostedLifecycleService>(async (services) =>
         {
-            await service.StoppingAsync(stopGracefullyShutdown).ConfigureAwait(false);
-        }
+            await services.StoppingAsync(stopGracefullyShutdown).ConfigureAwait(false);
+        },
+        nameof(IHostedLifecycleService.StoppingAsync));
     }
 
     private async Task StopServices(CancellationToken stopGracefullyShutdown)
     {
-        Logger.LogTrace("trigger {interface}.{lifetime}", nameof(IHostedService), nameof(IHostedService.StopAsync));
-        var services = container.Resolve<IEnumerable<IHostedService>>();
-        foreach (var service in services)
+        await CallLifetimeService<IHostedService>(async (services) =>
         {
-            await service.StopAsync(stopGracefullyShutdown).ConfigureAwait(false);
-        }
+            await services.StopAsync(stopGracefullyShutdown).ConfigureAwait(false);
+        },
+        nameof(IHostedService.StopAsync));
     }
 
     private async Task AfterStopServices(CancellationToken stopGracefullyShutdown)
     {
-        Logger.LogTrace("trigger {interface}.{lifetime}", nameof(IHostedLifecycleService),
-            nameof(IHostedLifecycleService.StoppedAsync));
-        var services = container.Resolve<IEnumerable<IHostedLifecycleService>>();
-        foreach (var service in services)
+        await CallLifetimeService<IHostedLifecycleService>(async (services) =>
         {
-            await service.StoppedAsync(stopGracefullyShutdown).ConfigureAwait(false);
-        }
+            await services.StoppedAsync(stopGracefullyShutdown).ConfigureAwait(false);
+        },
+        nameof(IHostedLifecycleService.StoppedAsync));
     }
 
     public void Dispose()
@@ -167,6 +173,28 @@ public abstract class ExtendedHost(IContainer container) : IHost, IHostApplicati
                 throw;
             }
         }, CancellationToken.None);
+    }
+
+    public void StartInCurrentThread()
+    {
+        var none = CancellationToken.None;
+        Logger.LogTrace("start application in current thread");
+        try
+        {
+            BeforeStartServices(none).Wait(none);
+            StartServices(none).Wait(none);
+            Start(none).Wait(none);
+            AfterStartServices(none).Wait(none);
+            Logger.LogTrace("cancel CancellationToken:{interface}.{token}", nameof(IHostApplicationLifetime),
+                            nameof(IHostApplicationLifetime.ApplicationStarted));
+            _startedCtx.CancelAsync().Wait(none);
+            Main().Wait(none);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogCritical("uncaught exception:{exception}", ex);
+            throw;
+        }
     }
 
     private async Task WrappedStop(CancellationToken stopGracefullyShutdown)

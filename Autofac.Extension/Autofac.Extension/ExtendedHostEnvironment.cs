@@ -6,23 +6,20 @@ namespace Utopia.Core;
 
 public sealed class ExtendedHostEnvironment : IHostEnvironment
 {
-    public ExtendedHostEnvironment(string applicationName, string contentRootPath, string? environmentName = null)
+    public ExtendedHostEnvironment(string applicationName, string contentRootPath, string environmentName)
     {
-        if (environmentName is null)
+        if (environmentName != Environments.Development &&
+           environmentName != Environments.Production &&
+           environmentName != Environments.Staging)
         {
-#if DEBUG
-            EnvironmentName = Environments.Development;
-#else
-            EnvironmentName = Environments.Production;
-#endif
+            throw new ArgumentException($"Invalid environment name: {environmentName}," +
+                $"valid value see:Microsoft.Extensions.Hosting.Environments");
         }
-        else
-        {
-            EnvironmentName = environmentName;
-        }
+
+        EnvironmentName = environmentName;
         ApplicationName = applicationName;
         ContentRootPath = contentRootPath;
-        ContentRootFileProvider = new PhysicalFileProvider(contentRootPath);
+        ContentRootFileProvider = new PhysicalFileProvider(Path.GetFullPath(contentRootPath));
     }
 
     public string EnvironmentName { get; set; }
