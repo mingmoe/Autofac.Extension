@@ -1,4 +1,5 @@
 ﻿using Autofac.Core.Lifetime;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualBasic.FileIO;
 using System;
@@ -17,55 +18,143 @@ public static class ConfigurationHelper
     {
         public T Value { get; init; }
 
-        public OptionsWrapper(Configured<T> newOptions)
+        public OptionsWrapper(IOptionsFactory<T> newOptions)
         {
-            Value = newOptions.Value;
+            Value = newOptions.Create(Options.DefaultName);
         }
     }
 
-    private class Configured<T>(T value)
+    private sealed class DefaultConfigureNamedOptions<T> : IConfigureNamedOptions<T>
+        where T : class, new()
     {
-        public T Value { get; init; } = value;
+        public void Configure(T options)
+        {
+            return;
+        }
+        public void Configure(string? name, T options)
+        {
+            return;
+        }
+    }
+    private sealed class DefaultPostConfigureOptions<T> : IPostConfigureOptions<T>
+        where T : class, new()
+    {
+        public void PostConfigure(string? name, T options)
+        {
+            return;
+        }
     }
 
-    internal class Configuration<T>
+    private sealed class DefaultValidateOptions<T> : IValidateOptions<T>
+        where T : class, new()
     {
-        public required Action<IComponentContext, T> ConfigureAction { get; init; }
+        public ValidateOptionsResult Validate(string? name, T options)
+        {
+            return ValidateOptionsResult.Success;
+        }
     }
 
     public static void AddOptions(this ContainerBuilder builder)
     {
         builder.RegisterGeneric(typeof(OptionsWrapper<>)).As(typeof(IOptions<>));
+        builder.RegisterGeneric(typeof(DefaultConfigureNamedOptions<>))
+            .As(typeof(IConfigureOptions<>))
+            .As(typeof(IConfigureNamedOptions<>));
+        builder.RegisterGeneric(typeof(DefaultPostConfigureOptions<>)).As(typeof(IPostConfigureOptions<>));
+        builder.RegisterGeneric(typeof(DefaultValidateOptions<>)).As(typeof(IValidateOptions<>));
+        builder.RegisterGeneric(typeof(OptionsCache<>)).As(typeof(IOptionsMonitorCache<>));
+        builder.RegisterGeneric(typeof(OptionsFactory<>)).As(typeof(IOptionsFactory<>));
+        builder.RegisterGeneric(typeof(OptionsMonitor<>)).As(typeof(IOptionsMonitor<>));
+        // the IOptionsChangeTokenSource should from the user
+        // if user did not provide it,the optionsMonitor will not work
+        // more detailed,the optionsMonitor will only be constructed by the IConfiguration
+        // so user should bind the IConfiguration to the options
     }
 
-    public static void Configure<T>(this ContainerBuilder builder, Action<IComponentContext, T> configure)
-        where T : class, new()
+    public static void Configure<TOptions>(
+        this ContainerBuilder builder,
+        string? name,
+        Action<TOptions> configure)
+        where TOptions : class, new()
     {
-        builder.RegisterInstance<Configuration<T>>(new Configuration<T>()
+        builder.Register<IConfigureNamedOptions<TOptions>>((context) =>
         {
-            ConfigureAction = configure
+            return new ConfigureNamedOptions<TOptions>(name, configure);
         })
-            .AsSelf()
+            .As<IConfigureOptions<TOptions>>()
             .SingleInstance();
+    }
 
-        builder.Register<T>(context =>
+    public static void Configure<TOptions, UserObj>(
+        this ContainerBuilder builder,
+        string? name,
+        Action<TOptions, UserObj> configure)
+        where TOptions : class, new()
+        where UserObj : class
+    {
+        builder.Register<IConfigureNamedOptions<TOptions>>((context) =>
         {
-            return new();
+            return new ConfigureNamedOptions<TOptions, UserObj>(name, context.Resolve<UserObj>(), configure);
         })
-            .AsSelf()
-            .SingleInstance()
-            .PreserveExistingDefaults();
+            .As<IConfigureOptions<TOptions>>()
+            .SingleInstance();
+    }
 
-        builder.Register<Configured<T>>((context) =>
+    public static void PostConfigure<TOptions, UserObj>(
+        this ContainerBuilder builder,
+        string? name,
+        Action<TOptions, UserObj> configure)
+        where TOptions : class, new()
+        where UserObj : class
+    {
+        builder.Register<IPostConfigureOptions<TOptions>>((context) =>
         {
-            T options = context.Resolve<T>();
-            context.Resolve<IEnumerable<Configuration<T>>>()
-                .ToList()
-                .ForEach(c => c.ConfigureAction(context, options));
-            return new Configured<T>(options);
+            return new PostConfigureOptions<TOptions, UserObj>(name, context.Resolve<UserObj>(), configure);
         })
-            .AsSelf()
-            .SingleInstance()
-            .PreserveExistingDefaults();
+            .As<IPostConfigureOptions<TOptions>>()
+            .SingleInstance();
+    }
+    public static void PostConfigure<TOptions>(
+        this ContainerBuilder builder,
+        string? name,
+        Action<TOptions> configure)
+        where TOptions : class, new()
+    {
+        builder.Register<IPostConfigureOptions<TOptions>>((context) =>
+        {
+            return new PostConfigureOptions<TOptions>(name, configure);
+        })
+            .As<IPostConfigureOptions<TOptions>>()
+            .SingleInstance();
+    }
+
+    public static void ValidateOptions<TOptions, UserObj>(
+        this ContainerBuilder builder,
+        string? name,
+        Func<TOptions, UserObj, bool> configure,
+        string failureMessage)
+        where TOptions : class, new()
+        where UserObj : class
+    {
+        builder.Register<IValidateOptions<TOptions>>((context) =>
+        {
+            return new ValidateOptions<TOptions, UserObj>(name, context.Resolve<UserObj>(), configure, failureMessage);
+        })
+            .As<IValidateOptions<TOptions>>()
+            .SingleInstance();
+    }
+    public static void ValidateOptions<TOptions>(
+        this ContainerBuilder builder,
+        string? name,
+        Func<TOptions, bool> configure,
+        string failureMessage)
+        where TOptions : class, new()
+    {
+        builder.Register<IValidateOptions<TOptions>>((context) =>
+        {
+            return new ValidateOptions<TOptions>(name, configure, failureMessage);
+        })
+            .As<IValidateOptions<TOptions>>()
+            .SingleInstance();
     }
 }

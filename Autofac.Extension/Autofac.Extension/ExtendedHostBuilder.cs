@@ -1,8 +1,11 @@
 ﻿using Autofac;
+using Autofac.Extension;
 using Autofac.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using static System.Collections.Specialized.BitVector32;
 
 namespace Utopia.Core;
 
@@ -59,6 +62,32 @@ public sealed class ExtendedHostBuilder : IHostBuilder
     {
         ArgumentNullException.ThrowIfNull(configureDelegate);
         ConfigureAppConfigurationDelegates.Add(configureDelegate);
+        return this;
+    }
+
+    public IHostBuilder BindOptions<TOptions>(string? name, Func<IConfiguration, IConfiguration> configuration)
+        where TOptions : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ConfigureContainerDelegates.Add((context, builder) =>
+        {
+            builder.Register((componentContext) =>
+            {
+                var config = configuration.Invoke(componentContext.Resolve<IConfiguration>());
+
+                return new ConfigurationChangeTokenSource<TOptions>(name, config);
+            })
+            .As<IOptionsChangeTokenSource<TOptions>>();
+
+            builder.Configure<TOptions, IConfiguration>(name, (options, config) =>
+            {
+                if (config is null)
+                {
+                    throw new InvalidOperationException("The configuration is null.");
+                }
+                config.Bind(options);
+            });
+        });
         return this;
     }
 
